@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spider Cursor Web</title>
+<style>
+:root{--bg:#060914;--text:#cfd8ff;--dim:#6f7aa8;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#060914}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);overflow:hidden;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hint{position:fixed;left:0;right:0;bottom:calc(18px + env(safe-area-inset-bottom,0px));text-align:center;color:var(--dim);font-size:12px;letter-spacing:1.5px;pointer-events:none;transition:opacity .6s}
+#snd{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));right:12px;background:transparent;border:1px solid #1f2a52;color:var(--text);border-radius:10px;padding:8px 12px;font:inherit;font-size:12px;cursor:pointer}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="snd">🔇 Sound off</button>
+<div id="hint">MOVE YOUR CURSOR OVER THE WEB · THE SPIDER FOLLOWS</div>
+<script>
+(() => {
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  let W = 0, H = 0;
+
+  /* ---------- sound ---------- */
+  const sound = {
+    ctx: null, last: 0, on: false,
+    init() { if (!this.ctx) { try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); },
+    playPluck() {
+      if (!this.on || !this.ctx) return;
+      const t = this.ctx.currentTime;
+      if (t - this.last < .07) return;
+      this.last = t;
+      const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+      o.type = 'triangle'; o.frequency.value = 220 + Math.random() * 260;
+      g.gain.setValueAtTime(.12, t); g.gain.exponentialRampToValueAtTime(.001, t + .4);
+      o.connect(g); g.connect(this.ctx.destination); o.start(t); o.stop(t + .42);
+    }
+  };
+  const sndBtn = document.getElementById('snd');
+  sndBtn.onclick = () => {
+    sound.init(); sound.on = !sound.on;
+    sndBtn.textContent = sound.on ? '🔊 Sound on' : '🔇 Sound off';
+  };
+
+  /* ---------- web ---------- */
+  class Web {
+    constructor() {
+      this.spokesCount = 14; this.rings = 11;
+      this.angles = []; this.vibration = []; this.vibrationVel = [];
+      for (let i = 0; i < this.spokesCount; i++) {
+        this.angles.push(i / this.spokesCount * Math.PI * 2 + (Math.random() - .5) * .08);
+        this.vibration.push(0); this.vibrationVel.push(0);
+      }
+    }
+    resize() { this.x = W / 2; this.y = H / 2; this.maxRadius = Math.min(W, H) * .44; }
+
+    pluckNear(mx, my) {
+      const dx = mx - this.x;
+      const dy = my - this.y;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist > 15 && dist < this.maxRadius * 1.1) {
+        let cursorAngle = Math.atan2(dy, dx);
+        if (cursorAngle < 0) cursorAngle += Math.PI * 2;
+
+        for (let i = 0; i < this.spokesCount; i++) {
+          let diff = Math.abs(this.angles[i] - cursorAngle);
+          if (diff > Math.PI) diff = Math.PI * 2 - diff;
+          if (diff < 0.2) {
+            this.vibrationVel[i] += 4.5;
+            sound.playPluck();
+          }
+        }
+      }
+    }
+
+    update() {
+      for (let i = 0; i < this.spokesCount; i++) {
+        this.vibrationVel[i] += -this.vibration[i] * .12;
+        this.vibrationVel[i] *= .93;
+        this.vibrationVel[i] = Math.max(-16, Math.min(16, this.vibrationVel[i]));
+        this.vibration[i] += this.vibrationVel[i];
+      }
+    }
+    pt(i, r) {
+      const a = this.angles[i], ax = Math.cos(a), ay = Math.sin(a), off = this.vibration[i] * (r / this.maxRadius);
+      return { x: this.x + ax * r - ay * off, y: this.y + ay * r + ax * off };
+    }
+    draw() {
+      const n = this.spokesCount;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(170,190,255,.22)'; ctx.lineWidth = 1;
+      for (let k = 1; k <= this.rings; k++) {
+        const r = this.maxRadius * Math.pow(k / this.rings, 1.12);
+        ctx.beginPath();
+        let first = this.pt(0, r); ctx.moveTo(first.x, first.y);
+        for (let i = 0; i < n; i++) {
+          const a = this.pt(i, r), b = this.pt((i + 1) % n, r);
+          const cx = (a.x + b.x) / 2 + (this.x - (a.x + b.x) / 2) * .07;
+          const cy = (a.y + b.y) / 2 + (this.y - (a.y + b.y) / 2) * .07;
+          ctx.quadraticCurveTo(cx, cy, b.x, b.y);
+        }
+        ctx.stroke();
+      }
+      for (let i = 0; i < n; i++) {
+        const e = Math.abs(this.vibration[i]);
+        ctx.strokeStyle = 'rgba(220,230,255,' + Math.min(.9, .4 + e * .05) + ')';
+        ctx.lineWidth = 1.2;
+        const p = this.pt(i, this.maxRadius);
+        ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+      }
+    }
+  }
+
+  /* ---------- spider ---------- */
+  class Spider {
+    constructor(x, y) {
+      this.x = x; this.y = y; this.heading = -Math.PI / 2; this.legs = [];
+      for (let i = 0; i < 8; i++) this.legs.push({ x: x, y: y });
+    }
+    update(tx, ty, dt) {
+      const px = this.x, py = this.y;
+      this.x += (tx - this.x) * Math.min(1, dt * 2.4);
+      this.y += (ty - this.y) * Math.min(1, dt * 2.4);
+      const mx = this.x - px, my = this.y - py;
+      if (Math.hypot(mx, my) > .15) {
+        let d = Math.atan2(my, mx) - this.heading;
+        while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
+        this.heading += d * .12;
+      }
+      for (let i = 0; i < 8; i++) {
+        const side = i < 4 ? 1 : -1, k = i % 4, ang = this.heading + side * (.55 + k * .62);
+        const reach = 40 + (k === 1 || k === 2 ? 8 : 0);
+        const gx = this.x + Math.cos(ang) * reach, gy = this.y + Math.sin(ang) * reach, L = this.legs[i];
+        if (Math.hypot(gx - L.x, gy - L.y) > 18) { L.x += (gx - L.x) * .35; L.y += (gy - L.y) * .35; }
+      }
+    }
+    draw() {
+      const L1 = 30, L2 = 30;
+      ctx.strokeStyle = '#dfe6ff'; ctx.lineWidth = 2.4; ctx.lineJoin = 'round';
+      for (let i = 0; i < 8; i++) {
+        const side = i < 4 ? 1 : -1, f = this.legs[i];
+        const dx = f.x - this.x, dy = f.y - this.y;
+        const d = Math.min(Math.hypot(dx, dy), L1 + L2 - .5) || 1, ux = dx / (Math.hypot(dx, dy) || 1), uy = dy / (Math.hypot(dx, dy) || 1);
+        const h = Math.sqrt(Math.max(0, L1 * L1 - d * d / 4));
+        const kx = this.x + ux * d / 2 + (-uy) * h * -side, ky = this.y + uy * d / 2 + ux * h * -side;
+        ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(kx, ky); ctx.lineTo(f.x, f.y); ctx.stroke();
+      }
+      ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.heading);
+      const g = ctx.createRadialGradient(-10, -4, 2, -10, 0, 22);
+      g.addColorStop(0, '#7c5cff'); g.addColorStop(1, '#2a1b6b');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(-14, 0, 17, 13, 0, 0, 6.28); ctx.fill();
+      ctx.fillStyle = '#ff4d6d'; ctx.beginPath(); ctx.ellipse(-16, 0, 4, 6, 0, 0, 6.28); ctx.fill();
+      ctx.fillStyle = '#3b2a8f'; ctx.beginPath(); ctx.ellipse(6, 0, 10, 8, 0, 0, 6.28); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(12, -3, 2, 0, 6.28); ctx.arc(12, 3, 2, 0, 6.28); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  /* ---------- input + loop ---------- */
+  const web = new Web(); let spider;
+  const ptr = { x: 0, y: 0, real: false, lastMove: 0, px: 0, py: 0 };
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    web.resize(); if (!spider) spider = new Spider(web.x, web.y + web.maxRadius * .5);
+  }
+  addEventListener('resize', resize);
+  const hint = document.getElementById('hint');
+  function move(e) { ptr.x = e.clientX; ptr.y = e.clientY; ptr.real = true; ptr.lastMove = performance.now(); hint.style.opacity = 0; }
+  addEventListener('pointermove', move);
+  addEventListener('pointerdown', e => { move(e); });
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(.05, (now - last) / 1000); last = now;
+    let cx, cy;
+    if (ptr.real && now - ptr.lastMove < 3000) { cx = ptr.x; cy = ptr.y; }
+    else { const t = now / 1000; cx = web.x + Math.cos(t * .7) * web.maxRadius * .7; cy = web.y + Math.sin(t * 1.1) * web.maxRadius * .6; }
+    if (Math.hypot(cx - ptr.px, cy - ptr.py) > 2) { web.pluckNear(cx, cy); ptr.px = cx; ptr.py = cy; }
+    const dx = cx - web.x, dy = cy - web.y, d = Math.hypot(dx, dy) || 1, lim = web.maxRadius * .9, k = Math.min(1, lim / d);
+    spider.update(web.x + dx * k, web.y + dy * k, dt);
+    web.update();
+
+    const g = ctx.createRadialGradient(W / 2, H / 2, 10, W / 2, H / 2, Math.max(W, H) * .7);
+    g.addColorStop(0, '#101a3a'); g.addColorStop(1, '#060914');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    web.draw(); spider.draw();
+    requestAnimationFrame(frame);
+  }
+  resize(); requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
